@@ -14,6 +14,7 @@ from itertools import repeat
 import multiprocessing as mp
 from scipy import signal as ss
 from collections import OrderedDict
+import functools
 from preprocess import get_all_stores_for_combining_data
 from computeCorr import computeCrossCorrelation
 from computeCorr import getCorrCombinations
@@ -174,9 +175,9 @@ def baselineCorrection(filepath, arr, timeAxis, baselineStart, baselineEnd):
 
 
 # helper function to make PSTH for each event
-def helper_psth(z_score, event, filepath, nSecPrev, nSecPost, timeInterval, bin_psth_trials, baselineStart, baselineEnd, naming, just_use_signal):
-
-	sampling_rate = read_hdf5('timeCorrection_'+naming, filepath, 'sampling_rate')[0]
+def helper_psth(z_score, event, filepath, folderNames, nSecPrev, nSecPost, timeInterval, bin_psth_trials, baselineStart, baselineEnd, naming, just_use_signal):
+	time_correction_path = functools.reduce(lambda l1, l2: l1+l2, [glob.glob(os.path.join(f, f'timeCorrection_{naming}.hdf5')) for f in folderNames])[0]
+	sampling_rate = read_hdf5('', time_correction_path, 'sampling_rate')[0]
 
 	# calculate time before event timestamp and time after event timestamp
 	nTsPrev = int(round(nSecPrev*sampling_rate))
@@ -285,15 +286,15 @@ def helper_psth(z_score, event, filepath, nSecPrev, nSecPost, timeInterval, bin_
 
 
 # function to create PSTH for each event using function helper_psth and save the PSTH to h5 file
-def storenamePsth(filepath, event, inputParameters):
+def storenamePsth(filepath, folderNames, event, inputParameters):
 
 	selectForComputePsth = inputParameters['selectForComputePsth']
 	bin_psth_trials = inputParameters['bin_psth_trials']
 
 	if selectForComputePsth=='z_score':
-		path = glob.glob(os.path.join(filepath, 'z_score_*'))
+		path = functools.reduce(lambda l1, l2: l1+l2, [glob.glob(os.path.join(f, 'z_score_*')) for f in folderNames])
 	elif selectForComputePsth=='dff':
-		path = glob.glob(os.path.join(filepath, 'dff_*'))
+		path = functools.reduce(lambda l1, l2: l1+l2, [glob.glob(os.path.join(f, 'dff_*')) for f in folderNames])
 	else:
 		path = glob.glob(os.path.join(filepath, 'z_score_*')) + glob.glob(os.path.join(filepath, 'dff_*'))
 
@@ -321,7 +322,7 @@ def storenamePsth(filepath, event, inputParameters):
 			else:
 				z_score = read_hdf5('', path[i], 'data')
 				just_use_signal = False
-			psth, psth_baselineUncorrected, cols = helper_psth(z_score, event, filepath, 
+			psth, psth_baselineUncorrected, cols = helper_psth(z_score, event, filepath, folderNames,
 															   nSecPrev, nSecPost, timeInterval, 
 															   bin_psth_trials, 
 															   baselineStart, baselineEnd, 
@@ -620,7 +621,12 @@ def psthForEachStorename(inputParameters):
 			storesListPath = np.concatenate(storesListPath)
 			storesList = np.asarray([[],[]])
 			for i in range(storesListPath.shape[0]):
-				storesList = np.concatenate((storesList, np.genfromtxt(os.path.join(storesListPath[i], 'storesList.csv'), dtype='str', delimiter=',')), axis=1)
+				if storesList.ndim == 1:
+						storesList = np.reshape(storesList, (2,1))
+				i_stores = np.genfromtxt(os.path.join(storesListPath[i], 'storesList.csv'), dtype='str', delimiter=',')
+				if i_stores.ndim == 1:
+					i_stores = np.reshape(i_stores, (2,1))
+				storesList = np.concatenate((storesList, i_stores), axis=1)
 			storesList = np.unique(storesList, axis=1)
 			op = makeAverageDir(inputParameters['abspath'])
 			np.savetxt(os.path.join(op, 'storesList.csv'), storesList, delimiter=",", fmt='%s')
@@ -644,27 +650,33 @@ def psthForEachStorename(inputParameters):
 			for i in range(len(op)):
 				storesList = np.asarray([[],[]])
 				for j in range(len(op[i])):
-					storesList = np.concatenate((storesList, np.genfromtxt(os.path.join(op[i][j], 'storesList.csv'), dtype='str', delimiter=',')), axis=1)
+					ij_stores = np.genfromtxt(os.path.join(op[i][j], 'storesList.csv'), dtype='str', delimiter=',')
+					if ij_stores.ndim == 1:
+						ij_stores = np.reshape(ij_stores, (2,1))
+					storesList = np.concatenate((storesList, ij_stores), axis=1)
 				storesList = np.unique(storesList, axis=1)
 				for k in range(storesList.shape[1]):
 					storenamePsth(op[i][0], storesList[1,k], inputParameters)
 					findPSTHPeakAndArea(op[i][0], storesList[1,k], inputParameters)
 					computeCrossCorrelation(op[i][0], storesList[1,k], inputParameters)
 		else:
+			all_savefolder_paths = [glob.glob(os.path.join(f, '*_output_*'))[0] for f in folderNames]
 			for i in range(len(folderNames)):
-				storesListPath = glob.glob(os.path.join(folderNames[i], '*_output_*'))
-				for j in range(len(storesListPath)):
-					filepath = storesListPath[j]
-					storesList = np.genfromtxt(os.path.join(filepath, 'storesList.csv'), dtype='str', delimiter=',')
+				i_savefolder_path = glob.glob(os.path.join(folderNames[i], '*_output_*'))
+				for j in range(len(i_savefolder_path)):
+					j_save_path = i_savefolder_path[j]
+					storesList = np.genfromtxt(os.path.join(j_save_path, 'storesList.csv'), dtype='str', delimiter=',')
+					if storesList.ndim == 1:
+						storesList = np.reshape(storesList, (2,1))
 
 					with mp.Pool(numProcesses) as p:
-						p.starmap(storenamePsth, zip(repeat(filepath), storesList[1,:], repeat(inputParameters)))
+						p.starmap(storenamePsth, zip(repeat(j_save_path), repeat(all_savefolder_paths), storesList[1,:], repeat(inputParameters)))
 
 					with mp.Pool(numProcesses) as pq:
-						pq.starmap(findPSTHPeakAndArea, zip(repeat(filepath), storesList[1,:], repeat(inputParameters)))
+						pq.starmap(findPSTHPeakAndArea, zip(repeat(j_save_path), storesList[1,:], repeat(inputParameters)))
 					
 					with mp.Pool(numProcesses) as cr:
-						cr.starmap(computeCrossCorrelation, zip(repeat(filepath), storesList[1,:], repeat(inputParameters)))
+						cr.starmap(computeCrossCorrelation, zip(repeat(j_save_path), storesList[1,:], repeat(inputParameters)))
 
 					#for k in range(storesList.shape[1]):
 					#	storenamePsth(filepath, storesList[1,k], inputParameters)

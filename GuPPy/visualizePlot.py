@@ -5,6 +5,7 @@ import re
 import math
 import numpy as np 
 import pandas as pd
+import functools
 from random import randint
 import holoviews as hv
 from holoviews import opts 
@@ -561,9 +562,8 @@ def helper_plots(filepath, event, name, inputParameters):
 	template.show(port=number)
 
 
-
 # function to combine all the output folders together and preprocess them to use them in helper_plots function
-def createPlots(filepath, event, inputParameters):
+def createPlots(filepath, folderNames, event, inputParameters):
 	average = inputParameters['visualizeAverageResults']
 	visualize_zscore_or_dff = inputParameters['visualize_zscore_or_dff']
 
@@ -578,7 +578,7 @@ def createPlots(filepath, event, inputParameters):
 		path = np.concatenate(path)
 	else:
 		if visualize_zscore_or_dff=='z_score':
-			path = glob.glob(os.path.join(filepath, 'z_score_*'))
+			path = functools.reduce(lambda l1, l2: l1+l2, [glob.glob(os.path.join(f, 'z_score_*')) for f in folderNames])
 		elif visualize_zscore_or_dff=='dff':
 			path = glob.glob(os.path.join(filepath, 'dff_*'))
 
@@ -619,6 +619,7 @@ def visualizeResults(inputParameters):
 	folderNamesForAvg = inputParameters['folderNamesForAvg']
 	combine_data = inputParameters['combine_data']
 
+	all_savefolder_paths = [glob.glob(os.path.join(f, '*_output_*'))[0] for f in folderNames]
 	if average==True and len(folderNamesForAvg)>0:
 		#folderNames = folderNamesForAvg
 		filepath_avg = os.path.join(inputParameters['abspath'], 'average')
@@ -630,10 +631,13 @@ def visualizeResults(inputParameters):
 		storesListPath = np.concatenate(storesListPath)
 		storesList = np.asarray([[],[]])
 		for i in range(storesListPath.shape[0]):
-			storesList = np.concatenate((storesList, np.genfromtxt(os.path.join(storesListPath[i], 'storesList.csv'), dtype='str', delimiter=',')), axis=1)
+			i_stores = np.genfromtxt(os.path.join(storesListPath[i], 'storesList.csv'), dtype='str', delimiter=',')
+			if i_stores.ndim == 1:
+				i_stores = np.reshape(i_stores, (2,1))
+			storesList = np.concatenate((storesList, i_stores), axis=1)
 		storesList = np.unique(storesList, axis=1)
 		
-		createPlots(filepath_avg, np.unique(storesList[1,:]), inputParameters)
+		createPlots(filepath_avg, all_savefolder_paths, np.unique(storesList[1,:]), inputParameters)
 
 	else:
 		if combine_data==True:
@@ -646,10 +650,13 @@ def visualizeResults(inputParameters):
 			for i in range(len(op)):
 				storesList = np.asarray([[],[]])
 				for j in range(len(op[i])):
-					storesList = np.concatenate((storesList, np.genfromtxt(os.path.join(op[i][j], 'storesList.csv'), dtype='str', delimiter=',')), axis=1)
+					ij_stores = np.genfromtxt(os.path.join(op[i][j], 'storesList.csv'), dtype='str', delimiter=',')
+					if ij_stores.ndim == 1:
+						ij_stores = np.reshape(ij_stores, (2,1))
+					storesList = np.concatenate((storesList, ij_stores), axis=1)
 				storesList = np.unique(storesList, axis=1)
 				filepath = op[i][0]
-				createPlots(filepath, storesList[1,:], inputParameters)
+				createPlots(filepath, all_savefolder_paths, storesList[1,:], inputParameters)
 		else:
 			for i in range(len(folderNames)):
 				
@@ -659,8 +666,10 @@ def visualizeResults(inputParameters):
 				for j in range(len(storesListPath)):
 					filepath = storesListPath[j]
 					storesList = np.genfromtxt(os.path.join(filepath, 'storesList.csv'), dtype='str', delimiter=',')
+					if storesList.ndim == 1:
+						storesList = np.reshape(storesList, (2,1))
 					
-					createPlots(filepath, storesList[1,:], inputParameters)
+					createPlots(filepath, all_savefolder_paths, storesList[1,:], inputParameters)
 
 
 #print(sys.argv[1:])

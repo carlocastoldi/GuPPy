@@ -26,7 +26,7 @@ def readtsq(filepath):
 	if len(path)>1:
 		raise Exception('Two tsq files are present at the location.')
 	elif len(path)==0:
-		print("\033[1m"+"tsq file not found."+"\033[1m")
+		print("\033[1m"+"tsq file not found."+"\033[0m")
 		return 0, 0
 	else:
 		path = path[0]
@@ -68,7 +68,7 @@ def check_doric(filepath):
 	if len(flag_arr)>1:
 		raise Exception('Two doric files are present at the same location')
 	if len(flag_arr)==0:
-		print("\033[1m"+"Doric file not found."+"\033[1m")
+		print("\033[1m"+"Doric file not found."+"\033[0m")
 		return 0
 	print('Doric file found.')
 	return flag_arr[0]
@@ -167,6 +167,8 @@ def check_data(S, filepath, event, outputPath):
 	arr = np.full(diff.shape[0],1)
 
 	storesList = np.genfromtxt(os.path.join(outputPath, 'storesList.csv'), dtype='str', delimiter=',')
+	if storesList.ndim == 1:
+		storesList = np.reshape(storesList, (2,1))
 	
 	if diff.shape[0]==0:
 		return 0
@@ -406,6 +408,8 @@ def readRawData(inputParameters):
 				storesList = np.genfromtxt(os.path.join(op, '.cache_storesList.csv'), dtype='str', delimiter=',')
 			else:
 				storesList = np.genfromtxt(os.path.join(op, 'storesList.csv'), dtype='str', delimiter=',')
+			if storesList.ndim == 1:
+				storesList = np.reshape(storesList, (2,1))
 
 			if isinstance(data, pd.DataFrame) and flag=='tsq':
 				execute_readtev(data, filepath, np.unique(storesList[0,:]), op, numProcesses)

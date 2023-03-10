@@ -8,6 +8,7 @@ import numpy as np
 import h5py
 import math
 import shutil
+import functools
 from scipy import signal as ss
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
@@ -297,16 +298,29 @@ def timestampCorrection_tdt(filepath, timeForLightsTurnOn, storesList):
 	print("Timestamps corrected and converted to seconds.")
 	#return timeRecStart, correctionIndex, timestampNew
 
+def applyEventCorrection(filepath, folderNames, timeForLightsTurnOn, event, displayName, naming):
+
+	cond = check_TDT(os.path.dirname(filepath))
+	arr = read_hdf5(event, filepath, 'timestamps')
+
+	if cond==True:
+		time_correction_path = functools.reduce(lambda l1, l2: l1+l2, [glob.glob(os.path.join(f, f'timeCorrection_{naming}.hdf5')) for f in folderNames])[0]
+		timeRecStart = read_hdf5(time_correction_path, filepath, 'timeRecStart')[0]
+		res = (arr>=timeRecStart).all()
+		if res==True:
+			arr = np.subtract(arr, timeRecStart)
+			arr = np.subtract(arr, timeForLightsTurnOn)
+		else:
+			arr = np.subtract(arr, timeForLightsTurnOn)
+	else:
+		arr = np.subtract(arr, timeForLightsTurnOn)
+	print(f"write_hdf5(arr, {displayName+'_'+naming}, {filepath}, 'ts')")
+	write_hdf5(arr, displayName+'_'+naming, filepath, 'ts')
+
 
 # function to apply correction to control, signal and event timestamps 
 def applyCorrection(filepath, timeForLightsTurnOn, event, displayName, naming):
 
-	cond = check_TDT(os.path.dirname(filepath))
-
-	if cond==True:
-		timeRecStart = read_hdf5('timeCorrection_'+naming, filepath, 'timeRecStart')[0]
-	
-	timestampNew = read_hdf5('timeCorrection_'+naming, filepath, 'timestampNew')
 	correctionIndex = read_hdf5('timeCorrection_'+naming, filepath, 'correctionIndex')
 
 	if 'control' in displayName.lower() or 'signal' in displayName.lower():
@@ -321,19 +335,6 @@ def applyCorrection(filepath, timeForLightsTurnOn, event, displayName, naming):
 		else:
 			arr = arr[correctionIndex]
 		write_hdf5(arr, displayName, filepath, 'data')
-	else:
-		arr = read_hdf5(event, filepath, 'timestamps')
-		if cond==True:
-			res = (arr>=timeRecStart).all()
-			if res==True:
-				arr = np.subtract(arr, timeRecStart)
-				arr = np.subtract(arr, timeForLightsTurnOn)
-			else:
-				arr = np.subtract(arr, timeForLightsTurnOn)
-		else:
-			arr = np.subtract(arr, timeForLightsTurnOn)
-		write_hdf5(arr, displayName+'_'+naming, filepath, 'ts')
-		
 	#if isosbestic_control==False and 'control' in displayName.lower():
 	#	control = create_control_channel(filepath, displayName)
 	#	write_hdf5(control, displayName, filepath, 'data')
@@ -341,7 +342,7 @@ def applyCorrection(filepath, timeForLightsTurnOn, event, displayName, naming):
 
 # function to check if naming convention was followed while saving storeslist file
 # and apply timestamps correction using the function applyCorrection
-def decide_naming_convention_and_applyCorrection(filepath, timeForLightsTurnOn, event, displayName, storesList):
+def decide_naming_convention_and_applyCorrection(filepath, folderNames, timeForLightsTurnOn, event, displayName, storesList):
 
 	print("Applying correction of timestamps to the data and event timestamps...")
 	storesList = storesList[1,:]
@@ -362,6 +363,10 @@ def decide_naming_convention_and_applyCorrection(filepath, timeForLightsTurnOn, 
 			applyCorrection(filepath, timeForLightsTurnOn, event, displayName, name_1)
 		else:
 			raise Exception('Error in naming convention of files or Error in storesList file')
+	
+	if arr.shape[1] == 0:
+		print("WARNING [decide_naming_convention_and_applyCorrection()]: fix region to be dynamic.")
+		applyEventCorrection(filepath, folderNames, timeForLightsTurnOn, event, displayName, "RE")
 
 	print("Timestamps corrections applied to the data and event timestamps.")
 
@@ -918,36 +923,36 @@ def compute_z_score(filepath, inputParameters):
 	print("z-score for the data computed.")
 	
 
-
 # function to execute timestamps corrections using functions timestampCorrection and decide_naming_convention_and_applyCorrection
 def execute_timestamp_correction(folderNames, timeForLightsTurnOn, isosbestic_control):
-
+	all_savefolder_paths = [glob.glob(os.path.join(f, '*_output_*'))[0] for f in folderNames]
 
 	for i in range(len(folderNames)):
-		filepath = folderNames[i]
-		storesListPath = glob.glob(os.path.join(filepath, '*_output_*'))
+		i_savefolder_path = glob.glob(os.path.join(folderNames[i], '*_output_*'))
 		cond = check_TDT(folderNames[i])
 
-		for j in range(len(storesListPath)):
-			filepath = storesListPath[j]
-			storesList = np.genfromtxt(os.path.join(filepath, 'storesList.csv'), dtype='str', delimiter=',')
+		for j in range(len(i_savefolder_path)):
+			j_save_path = i_savefolder_path[j]
+			storesList = np.genfromtxt(os.path.join(j_save_path, 'storesList.csv'), dtype='str', delimiter=',')
+			if storesList.ndim == 1:
+				storesList = np.reshape(storesList, (2,1))
 
 			if isosbestic_control==False:
-				storesList = add_control_channel(filepath, storesList)
+				storesList = add_control_channel(j_save_path, storesList)
 				
 
 			if cond==True:
-				timestampCorrection_tdt(filepath, timeForLightsTurnOn, storesList)
+				timestampCorrection_tdt(j_save_path, timeForLightsTurnOn, storesList)
 			else:
-				timestampCorrection_csv(filepath, timeForLightsTurnOn, storesList)
+				timestampCorrection_csv(j_save_path, timeForLightsTurnOn, storesList)
 
 			for k in range(storesList.shape[1]):
-				decide_naming_convention_and_applyCorrection(filepath, timeForLightsTurnOn, 
+				decide_naming_convention_and_applyCorrection(j_save_path, all_savefolder_paths, timeForLightsTurnOn, 
 															 storesList[0,k], storesList[1,k], storesList)
 
 			# check if isosbestic control is false and also if new control channel is added
 			if isosbestic_control==False:
-				create_control_channel(filepath, storesList, window=101)
+				create_control_channel(j_save_path, storesList, window=101)
 
 
 
@@ -959,8 +964,10 @@ def check_storeslistfile(folderNames):
 		filepath = folderNames[i]
 		storesListPath = glob.glob(os.path.join(filepath, '*_output_*'))
 		for j in range(len(storesListPath)):
-			filepath = storesListPath[j]
-			storesList = np.concatenate((storesList, np.genfromtxt(os.path.join(filepath, 'storesList.csv'), dtype='str', delimiter=',')), axis=1)
+			j_stores = np.genfromtxt(os.path.join(storesListPath[j], 'storesList.csv'), dtype='str', delimiter=',')
+			if j_stores.ndim == 1:
+				j_stores = np.reshape(j_stores, (2,1))
+			storesList = np.concatenate((storesList, j_stores), axis=1)
 
 	storesList = np.unique(storesList, axis=1)
 	
@@ -1045,6 +1052,8 @@ def execute_zscore(folderNames, inputParameters):
 	for j in range(len(storesListPath)):
 		filepath = storesListPath[j]
 		storesList = np.genfromtxt(os.path.join(filepath, 'storesList.csv'), dtype='str', delimiter=',')
+		if storesList.ndim == 1:
+			storesList = np.reshape(storesList, (2,1))
 
 		if remove_artifacts==True:
 			print("Removing Artifacts from the data and correcting timestamps...")
